@@ -495,7 +495,7 @@ def check_file(file, suffix="", download=True, hard=True):
     else:  # search
         files = glob.glob(str(ROOT / "cfg" / "**" / file), recursive=True)  # find file
         if not files and hard:
-            raise FileNotFoundError(f"'{file}' does not exist")
+            raise FileNotFoundError(f"'{file}' does not exist from: {str(ROOT / 'cfg' / '**' / file)}")
         elif len(files) > 1 and hard:
             raise FileNotFoundError(f"Multiple files match '{file}', specify exact path: {files}")
         return files[0] if len(files) else []  # return file
