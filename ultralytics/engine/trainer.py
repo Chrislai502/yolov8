@@ -89,38 +89,51 @@ class BaseTrainer:
 
     def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
         """
-        Initializes the BaseTrainer class.
+        Initialize the BaseTrainer object with configurations, optional overrides, and callbacks.
 
-        Args:
-            cfg (str, optional): Path to a configuration file. Defaults to DEFAULT_CFG.
-            overrides (dict, optional): Configuration overrides. Defaults to None.
+        Parameters:
+        - cfg (str, optional): Path to a configuration file that defines training parameters. Defaults to DEFAULT_CFG.
+        - overrides (dict, optional): A dictionary of parameters to override default or file-based configurations.
+        - _callbacks (optional): A list or collection of callback functions to be used during training for custom behavior.
         """
+        # Load the configuration, possibly overriding default settings with provided ones.
         self.args = get_cfg(cfg, overrides)
+        
+        # Check if training should resume from a checkpoint, and adjust configuration accordingly.
         self.check_resume(overrides)
+        
+        # Select the computing device (CPU, GPU, or others like MPS) for training based on the configuration.
         self.device = select_device(self.args.device, self.args.batch)
-        self.validator = None
-        self.metrics = None
-        self.plots = {}
+        
+        # Initializations with None values. These attributes should be set up later in the training process.
+        self.validator = None # For validating the model's performance.
+        self.metrics = None # For storing metrics collected during training.
+        self.plots = {}  # For plotting training progress.
+        
+        # Initialize seeds for random number generators to ensure reproducibility.
         init_seeds(self.args.seed + 1 + RANK, deterministic=self.args.deterministic)
 
-        # Dirs
-        self.save_dir = get_save_dir(self.args)
-        self.args.name = self.save_dir.name  # update name for loggers
+        # Setup directories for saving training results and model weights.
+        self.save_dir = get_save_dir(self.args) # Directory to save general results.
+        self.args.name = self.save_dir.name  # Update the training name based on the saved weights
         self.wdir = self.save_dir / "weights"  # weights dir
-        if RANK in (-1, 0):
+        if RANK in (-1, 0): # If running in a non-distributed manner or as the master process.
             self.wdir.mkdir(parents=True, exist_ok=True)  # make dir
             self.args.save_dir = str(self.save_dir)
             yaml_save(self.save_dir / "args.yaml", vars(self.args))  # save run args
         self.last, self.best = self.wdir / "last.pt", self.wdir / "best.pt"  # checkpoint paths
+        
+        # Setup training parameters like save period, batch size, number of epochs, etc., from the configuration.
         self.save_period = self.args.save_period
-
         self.batch_size = self.args.batch
         self.epochs = self.args.epochs
-        self.start_epoch = 0
+        self.start_epoch = 0 # Initialize the starting epoch.
+        
+        # If running as the master process or in non-distributed mode, print the training arguments.
         if RANK == -1:
             print_args(vars(self.args))
 
-        # Device
+        # Adjust the number of workers for data loading based on the device type to optimize training speed.
         if self.device.type in ("cpu", "mps"):
             self.args.workers = 0  # faster CPU training as time dominated by inference, not dataloading
 
@@ -132,6 +145,7 @@ class BaseTrainer:
             elif self.args.data.split(".")[-1] in ("yaml", "yml") or self.args.task in ("detect", "segment", "pose"):
                 self.data = check_det_dataset(self.args.data)
                 if "yaml_file" in self.data:
+                    # NOT APPLICABLE FOR ROARSEG
                     self.args.data = self.data["yaml_file"]  # for validating 'yolo train data=url.zip' usage
         except Exception as e:
             raise RuntimeError(emojis(f"Dataset '{clean_url(self.args.data)}' error ❌ {e}")) from e

@@ -252,31 +252,34 @@ def check_det_dataset(dataset, autodownload=True):
     """
     Download, verify, and/or unzip a dataset if not found locally.
 
-    This function checks the availability of a specified dataset, and if not found, it has the option to download and
-    unzip the dataset. It then reads and parses the accompanying YAML data, ensuring key requirements are met and also
-    resolves paths related to the dataset.
+    This function checks the availability of a specified dataset, and if not found, 
+    it has the option to download and unzip the dataset. It then reads and parses the 
+    accompanying YAML data, ensuring key requirements are met and also resolves paths 
+    related to the dataset.
 
     Args:
         dataset (str): Path to the dataset or dataset descriptor (like a YAML file).
-        autodownload (bool, optional): Whether to automatically download the dataset if not found. Defaults to True.
+        autodownload (bool, optional): Whether to automatically download the dataset 
+        if not found. Defaults to True.
 
     Returns:
         (dict): Parsed dataset information and paths.
     """
 
+    # Verify the existence of the dataset file and obtain it's path
     file = check_file(dataset)
 
-    # Download (optional)
+    # If the file is a zip or tar archive, extract it and find the dataset YAML within the extracted directory.
     extract_dir = ""
     if zipfile.is_zipfile(file) or is_tarfile(file):
         new_dir = safe_download(file, dir=DATASETS_DIR, unzip=True, delete=False)
         file = find_dataset_yaml(DATASETS_DIR / new_dir)
         extract_dir, autodownload = file.parent, False
 
-    # Read YAML
-    data = yaml_load(file, append_filename=True)  # dictionary
+    # Load the dataset configuration from the YAML file.
+    data = yaml_load(file, append_filename=True) # dictionary with dataset info.
 
-    # Checks
+    # Perform checks to ensure the YAML contains required keys: 'train', and 'val' (or 'validation', which gets renamed).
     for k in "train", "val":
         if k not in data:
             if k != "val" or "validation" not in data:
@@ -285,6 +288,8 @@ def check_det_dataset(dataset, autodownload=True):
                 )
             LOGGER.info("WARNING ⚠️ renaming data YAML 'validation' key to 'val' to match YOLO format.")
             data["val"] = data.pop("validation")  # replace 'validation' key with 'val' key
+    
+    # Ensure that either 'names' or 'nc' (number of classes) is present, and if both are, they match.
     if "names" not in data and "nc" not in data:
         raise SyntaxError(emojis(f"{dataset} key missing ❌.\n either 'names' or 'nc' are required in all data YAMLs."))
     if "names" in data and "nc" in data and len(data["names"]) != data["nc"]:
@@ -294,31 +299,34 @@ def check_det_dataset(dataset, autodownload=True):
     else:
         data["nc"] = len(data["names"])
 
+    # Verify and possibly correct class names.
     data["names"] = check_class_names(data["names"])
 
-    # Resolve paths
+    # Resolve the root path of the dataset.
     path = Path(extract_dir or data.get("path") or Path(data.get("yaml_file", "")).parent)  # dataset root
     if not path.is_absolute():
         path = (DATASETS_DIR / path).resolve()
 
-    # Set paths
-    data["path"] = path  # download scripts
+    # Update dataset configuration with absolute paths for training, validation, 
+    # and testing splits.
+    data["path"] = path  # Root path of the dataset.
     for k in "train", "val", "test":
-        if data.get(k):  # prepend path
-            if isinstance(data[k], str):
+        if data.get(k):  # If the key exists and has a value.
+            if isinstance(data[k], str): # Handle single path strings.
                 x = (path / data[k]).resolve()
+                # Attempt to fix relative paths pointing outside the dataset directory.
                 if not x.exists() and data[k].startswith("../"):
                     x = (path / data[k][3:]).resolve()
                 data[k] = str(x)
-            else:
+            else: # Handle lists of paths.
                 data[k] = [str((path / x).resolve()) for x in data[k]]
 
-    # Parse YAML
+    # Attempt to download the dataset if necessary and if paths to validation images do not exist.
     val, s = (data.get(x) for x in ("val", "download"))
     if val:
         val = [Path(x).resolve() for x in (val if isinstance(val, list) else [val])]  # val path
         if not all(x.exists() for x in val):
-            name = clean_url(dataset)  # dataset name with URL auth stripped
+            name = clean_url(dataset)  # Clean the dataset name.
             m = f"\nDataset '{name}' images not found ⚠️, missing path '{[x for x in val if not x.exists()][0]}'"
             if s and autodownload:
                 LOGGER.warning(m)
@@ -381,7 +389,9 @@ def check_cls_dataset(dataset, split=""):
             download(url, dir=data_dir.parent)
         s = f"Dataset download success ✅ ({time.time() - t:.1f}s), saved to {colorstr('bold', data_dir)}\n"
         LOGGER.info(s)
+        
     train_set = data_dir / "train"
+    
     val_set = (
         data_dir / "val"
         if (data_dir / "val").exists()
